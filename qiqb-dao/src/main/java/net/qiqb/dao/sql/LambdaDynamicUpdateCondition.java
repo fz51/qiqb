@@ -7,7 +7,7 @@ import java.util.Map;
 
 public class LambdaDynamicUpdateCondition<T> implements DynamicUpdateCondition<LambdaDynamicUpdateCondition<T>, Func1<T, ?>> {
 
-    private Map<Func1<T, ?>, Object> sql = new HashMap<>();
+    private final Map<Func1<T, ?>, Object> sql = new HashMap<>();
 
     @Override
     public LambdaDynamicUpdateCondition<T> eq(Func1<T, ?> column) {
