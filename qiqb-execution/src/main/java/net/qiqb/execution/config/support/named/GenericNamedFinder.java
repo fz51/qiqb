@@ -14,7 +14,7 @@ public interface GenericNamedFinder {
     Class<?> findGeneric(Object o, Class<?> type, int index);
 
     /**
-     * 获取
+     * 获取Mapping
      *
      * @param o
      * @param annotationType

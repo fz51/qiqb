@@ -1,6 +1,8 @@
 package net.qiqb.execution.spring.beans;
 
 import cn.hutool.core.util.ClassLoaderUtil;
+import cn.hutool.core.util.ClassUtil;
+import lombok.extern.slf4j.Slf4j;
 import net.qiqb.execution.config.support.named.GenericNamedFinder;
 import net.qiqb.execution.config.support.named.GenericNamedFinderHolder;
 import net.qiqb.execution.executor.config.BusinessExecutor;
@@ -16,6 +18,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.ScannedGenericBeanDefinition;
 import org.springframework.core.ResolvableType;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.lang.NonNull;
 import org.springframework.util.ObjectUtils;
 
@@ -26,7 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-
+@Slf4j
 public class SpringGenericNamedFinderBean implements GenericNamedFinder, ApplicationContextAware, SmartInitializingSingleton, BeanFactoryPostProcessor {
 
     private ConfigurableListableBeanFactory beanFactory;
@@ -72,110 +75,6 @@ public class SpringGenericNamedFinderBean implements GenericNamedFinder, Applica
         GenericNamedFinderHolder.addGenericNamedFinder(this);
     }
 
-
-   /* public boolean isType(Object h, Class<?> handlerType, NameIndex commandNameIndex, NameIndex domainNameIndex) {
-        final BeanDefinition beanDefinition = objectBeanDefinitionMap.get(h);
-        if (beanDefinition == null) {
-            return super.isType(h, handlerType, commandNameIndex, domainNameIndex);
-        }
-        String commandName = null;
-
-        String domainName = null;
-
-        boolean isType = false;
-
-        String implTypeClassName = beanDefinition.getBeanClassName();
-
-        if (!ObjectUtils.isEmpty(implTypeClassName)) {
-            if (handlerType.isAssignableFrom(h.getClass())) {
-                isType = true;
-
-            }
-            if (isType) {
-                final ExecutingMapping executingMapping = AnnotationUtil.getAnnotation(h.getClass(), ExecutingMapping.class);
-                if (executingMapping != null) {
-                    commandName = executingMapping.commandName();
-                    domainName = executingMapping.domainName();
-                } else {
-                    final ResolvableType type = ResolvableType.forClass(h.getClass());
-                    final ResolvableType[] interfaces = type.getInterfaces();
-                    for (ResolvableType anInterface : interfaces) {
-                        if (handlerType.equals(anInterface.getRawClass())) {
-                            final ResolvableType[] generics = anInterface.getGenerics();
-                            // 两边的泛型必须一直
-                            if (commandNameIndex != null && generics.length > commandNameIndex.getIndex()) {
-                                final ResolvableType generic = generics[commandNameIndex.getIndex()];
-                                commandName = Objects.requireNonNull(generic.getRawClass()).getName();
-                            }
-                            if (domainNameIndex != null && generics.length > domainNameIndex.getIndex()) {
-                                final ResolvableType generic = generics[domainNameIndex.getIndex()];
-                                domainName = Objects.requireNonNull(generic.getRawClass()).getName();
-                            }
-                        }
-                    }
-                }
-
-            }
-        } else {
-            if (beanDefinition instanceof AnnotatedBeanDefinition) {
-                // @Bean 加载
-                final MethodMetadata factoryMethodMetadata = ((AnnotatedBeanDefinition) beanDefinition).getFactoryMethodMetadata();
-                if (factoryMethodMetadata != null) {
-
-                    final boolean sameHandlerType = factoryMethodMetadata.getReturnTypeName().equals(handlerType.getName());
-                    if (sameHandlerType) {
-                        isType = true;
-                        // 比较泛型
-                        final String methodName = factoryMethodMetadata.getMethodName();
-                        final String declaringClassName = factoryMethodMetadata.getDeclaringClassName();
-                        final Class<Object> configClass = ClassUtil.loadClass(declaringClassName);
-                        Method method = null;
-                        for (Method m : configClass.getMethods()) {
-                            if (m.getName().equals(methodName)) {
-                                method = m;
-                                break;
-                            }
-                        }
-                        if (method != null) {
-                            // 是否又
-                            final ExecutingMapping executingMapping = AnnotationUtil.getAnnotation(method, ExecutingMapping.class);
-                            if (executingMapping != null) {
-                                commandName = executingMapping.commandName();
-                                domainName = executingMapping.domainName();
-                            } else {
-                                final ResolvableType type = ResolvableType.forMethodReturnType(method);
-                                final ResolvableType[] generics = type.getGenerics();
-                                // 两边的泛型必须一直
-                                if (commandNameIndex != null && generics.length > commandNameIndex.getIndex()) {
-                                    final ResolvableType generic = generics[commandNameIndex.getIndex()];
-                                    commandName = Objects.requireNonNull(generic.getRawClass()).getName();
-                                }
-                                if (domainNameIndex != null && generics.length > domainNameIndex.getIndex()) {
-                                    final ResolvableType generic = generics[domainNameIndex.getIndex()];
-                                    domainName = Objects.requireNonNull(generic.getRawClass()).getName();
-                                }
-                            }
-
-                        }
-                    }
-
-                }
-
-            }
-        }
-        if (isType) {
-            if (StrUtil.isNotEmpty(commandName) && (commandNameIndex == null || !commandNameIndex.getName().equals(commandName))) {
-                isType = false;
-            }
-
-            if (StrUtil.isNotEmpty(domainName) && (domainNameIndex == null || !domainNameIndex.getName().equals(domainName))) {
-                isType = false;
-            }
-        }
-        return isType;
-    }*/
-
-
     @Override
     public Class<?> findGeneric(Object o, Class<?> type, int index) {
         final BeanDefinition beanDefinition = objectBeanDefinitionMap.get(o);
@@ -189,27 +88,37 @@ public class SpringGenericNamedFinderBean implements GenericNamedFinder, Applica
             final ResolvableType resolvableType = ResolvableType.forClass(o.getClass());
             return getResolvableType(resolvableType, type, index);
         } else {
+            // 通过@Bean 注解注入的对象，需要通过config 类的信息获取返回的泛型
             if (beanDefinition instanceof AnnotatedBeanDefinition) {
                 final String factoryBeanName = beanDefinition.getFactoryBeanName();
-                // 配置的bean
-                final Object configBean = applicationContext.getBean(factoryBeanName);
+                if (factoryBeanName != null) {
+                    // 配置的bean
+                    //final Object configBean = applicationContext.getBean(factoryBeanName);
 
-                final BeanDefinition factoryBeanDefinition = beanFactory.getBeanDefinition(factoryBeanName);
-                if (factoryBeanDefinition instanceof ScannedGenericBeanDefinition) {
-                    final String className = ((ScannedGenericBeanDefinition) factoryBeanDefinition).getMetadata().getClassName();
-                    final Class<?> aClass = ClassLoaderUtil.loadClass(className);
-                    try {
-                        final Method method = aClass.getMethod(beanDefinition.getFactoryMethodName());
-                        // 是否又
-                        final ResolvableType methodReturnType = ResolvableType.forMethodReturnType(method);
-                        final ResolvableType[] generics = methodReturnType.getGenerics();
-                        if (generics.length > index) {
-                            return generics[index].getRawClass();
+                    final BeanDefinition factoryBeanDefinition = beanFactory.getBeanDefinition(factoryBeanName);
+                    if (factoryBeanDefinition instanceof ScannedGenericBeanDefinition) {
+                        final String className = ((ScannedGenericBeanDefinition) factoryBeanDefinition).getMetadata().getClassName();
+                        final Class<?> aClass = ClassLoaderUtil.loadClass(className);
+                        // bean 暴露的都是公共方法
+                        final Method[] publicMethods = ClassUtil.getPublicMethods(aClass);
+                        if (publicMethods != null) {
+                            for (Method publicMethod : publicMethods) {
+                                if (publicMethod.getName().equals(beanDefinition.getFactoryMethodName())) {
+                                    // 解析放回值的泛型
+                                    final ResolvableType methodReturnType = ResolvableType.forMethodReturnType(publicMethod);
+                                    final ResolvableType[] generics = methodReturnType.getGenerics();
+                                    if (generics.length > index) {
+                                        return generics[index].getRawClass();
+                                    }
+                                }
+                            }
                         }
-                    } catch (NoSuchMethodException e) {
-                        throw new RuntimeException(e);
+
                     }
+                } else {
+                    log.warn("factoryBeanName is null");
                 }
+
             }
         }
         return null;
@@ -276,6 +185,46 @@ public class SpringGenericNamedFinderBean implements GenericNamedFinder, Applica
 
     @Override
     public <A extends Annotation> A getMappingAnnotation(Object o, Class<A> annotationType) {
+        final BeanDefinition beanDefinition = objectBeanDefinitionMap.get(o);
+        if (beanDefinition == null) {
+            return null;
+        }
+
+        String implTypeClassName = beanDefinition.getBeanClassName();
+
+        if (!ObjectUtils.isEmpty(implTypeClassName)) {
+            final Class<?> aClass = ClassLoaderUtil.loadClass(implTypeClassName);
+            return AnnotationUtils.getAnnotation(aClass, annotationType);
+        } else {
+            // 通过@Bean 注解注入的对象，需要通过config 类的信息获取返回的泛型
+            if (beanDefinition instanceof AnnotatedBeanDefinition) {
+                final String factoryBeanName = beanDefinition.getFactoryBeanName();
+                if (factoryBeanName != null) {
+                    // 配置的bean
+                    //final Object configBean = applicationContext.getBean(factoryBeanName);
+
+                    final BeanDefinition factoryBeanDefinition = beanFactory.getBeanDefinition(factoryBeanName);
+                    if (factoryBeanDefinition instanceof ScannedGenericBeanDefinition) {
+                        final String className = ((ScannedGenericBeanDefinition) factoryBeanDefinition).getMetadata().getClassName();
+                        final Class<?> aClass = ClassLoaderUtil.loadClass(className);
+                        // bean 暴露的都是公共方法
+                        final Method[] publicMethods = ClassUtil.getPublicMethods(aClass);
+                        if (publicMethods != null) {
+                            for (Method publicMethod : publicMethods) {
+                                if (publicMethod.getName().equals(beanDefinition.getFactoryMethodName())) {
+                                    // 解析放回值的泛型
+                                    return AnnotationUtils.getAnnotation(publicMethod, annotationType);
+                                }
+                            }
+                        }
+
+                    }
+                } else {
+                    log.warn("factoryBeanName is null");
+                }
+
+            }
+        }
         return null;
     }
 }

@@ -38,6 +38,7 @@ public class SimpleGenericNamedFinder implements GenericNamedFinder {
             return AnnotationUtils.getAnnotation((Field) o, annotationType);
         }
         final Class<?> clazz = o.getClass();
+        // 对象是Lambda，直接跳过
         if (clazz.getName().contains("Lambda")) {
             return null;
         }
