@@ -34,7 +34,9 @@ public class DomainObjectLoaderHandlerMapping extends AbsTypeHandlerMapping<Aggr
         if (!handlerType.equals(DomainObjectFactory.class)) {
             return null;
         }
+        // 命令定义的domain 名称
         String domainName = command.getCommandDefinition().getDomainDefinition().getDefinitionName();
+        // handler 定义的 领域名称
         String decorateDomainName;
         final DomainMapping domainMapping = GenericNamedFinderHolder.getMappingAnnotation(handler, DomainMapping.class);
         if (domainMapping == null) {
@@ -55,19 +57,24 @@ public class DomainObjectLoaderHandlerMapping extends AbsTypeHandlerMapping<Aggr
             if (loadVoucherField == null) {
                 return null;
             }
-            String bidName;
-            final BusinessIdMapping businessIdMapping = GenericNamedFinderHolder.getMappingAnnotation(handler, BusinessIdMapping.class);
-            if (businessIdMapping != null) {
-                bidName = businessIdMapping.value();
-            } else {
-                // 默认类型名称
-                bidName = loadVoucherField.getType().getName();
-            }
+            // 命令内的加载凭证的名称
             String loadVoucherName = AnnotationUtil.getAnnotationValue(loadVoucherField, LoadVoucher.class);
             if (StrUtil.isEmpty(loadVoucherName)) {
                 loadVoucherName = loadVoucherField.getType().getName();
             }
-            if (bidName.equals(loadVoucherName)) {
+            String bidName = null;
+            final BusinessIdMapping businessIdMapping = GenericNamedFinderHolder.getMappingAnnotation(handler, BusinessIdMapping.class);
+            if (businessIdMapping != null) {
+                bidName = businessIdMapping.value();
+            } else {
+                // 默认是泛型名称作名称
+                final Class<?> bidGeneric = GenericNamedFinderHolder.findGeneric(handler, AggregateRootLoader.class, 0);
+                if (bidGeneric != null) {
+                    bidName = bidGeneric.getName();
+                }
+
+            }
+            if (loadVoucherName.equals(bidName)) {
                 return (DomainObjectFactory) cmdValue -> {
                     final Object fieldValue = ReflectUtil.getFieldValue(cmdValue, loadVoucherField);
                     return handler.loadAggregateRoot(fieldValue);
